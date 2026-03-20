@@ -187,6 +187,11 @@ jobs:
             {"op":"replace","path":"/spec/replicas","value":1}
           ]'
           kubectl rollout status deployment/flask-app -n app --timeout=120s
+      - name: Debug pod status
+        if: always()
+        run: |
+          kubectl get pods -n app -o wide
+          kubectl describe pod -l app=flask-app -n app | tail -30
 
       - name: Deploy auto-healer to Kind
         run: |
