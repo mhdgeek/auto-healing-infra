@@ -182,7 +182,7 @@ jobs:
         run: |
           kubectl apply -f k8s/namespaces.yml
           kubectl apply -f k8s/flask-app.yml
-kubectl patch deployment flask-app -n app --type=json -p='[
+          kubectl patch deployment flask-app -n app --type=json -p='[
             {"op":"replace","path":"/spec/replicas","value":1},
             {"op":"remove","path":"/spec/template/spec/topologySpreadConstraints"}
           ]'
