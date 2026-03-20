@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+  namespace: app
+  labels:
+    app: flask-app
+    version: "1.0.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: flask-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0        # Zero downtime
+  template:
+    metadata:
+      labels:
+        app: flask-app
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: flask-app
+          image: auto-healing-app:local
+          imagePullPolicy: Never          # Image locale Kind
+          ports:
+            - containerPort: 5000
+              name: http
+
+          # Variables depuis le ConfigMap
+          envFrom:
+            - configMapRef:
+                name: flask-app-config
+
+          # Resource limits
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
+          # Liveness probe — K8s redémarre le pod si ça échoue
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # Readiness probe — K8s retire le pod du load balancer si ça échoue
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 2
