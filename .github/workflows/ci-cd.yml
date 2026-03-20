@@ -13,122 +13,85 @@ env:
 
 jobs:
 
-  # ─── Job 1 : Lint + Tests ──────────────────────────────────────────────────
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
-
       - name: Install dependencies
-        run: |
-          pip install -r app/requirements.txt
-          pip install pytest pytest-cov ruff
-
+        run: pip install -r app/requirements.txt pytest pytest-cov ruff
       - name: Lint with ruff
         run: ruff check app/ healer/
-
-      - name: Run tests with coverage
-        run: |
-          pytest tests/ -v --cov=app/app --cov-report=xml --cov-report=term-missing
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+      - name: Run tests
+        run: pytest tests/ -v --cov=app/app --cov-report=xml
+      - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
-  # ─── Job 2 : Build + Push Docker images ───────────────────────────────────
   build:
     name: Build & Push Images
     runs-on: ubuntu-latest
     needs: test
     if: github.ref == 'refs/heads/main'
-
     permissions:
       contents: read
       packages: write
-
     outputs:
       app-tag: ${{ steps.meta-app.outputs.tags }}
       healer-tag: ${{ steps.meta-healer.outputs.tags }}
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata — app
-        id: meta-app
+      - id: meta-app
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_APP }}
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest
-
-      - name: Extract metadata — healer
-        id: meta-healer
+      - id: meta-healer
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_HEALER }}
           tags: |
             type=sha,prefix=sha-
             type=raw,value=latest
-
-      - name: Build & push Flask app image
-        uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v5
         with:
           context: ./app
           push: true
           tags: ${{ steps.meta-app.outputs.tags }}
-          labels: ${{ steps.meta-app.outputs.labels }}
-
-      - name: Build & push Auto-healer image
-        uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v5
         with:
           context: ./healer
           push: true
           tags: ${{ steps.meta-healer.outputs.tags }}
-          labels: ${{ steps.meta-healer.outputs.labels }}
 
-  # ─── Job 3 : Trivy Security Scan ──────────────────────────────────────────
   security:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main'
-
     permissions:
       contents: read
       packages: read
       security-events: write
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Trivy scan — Flask app
         uses: aquasecurity/trivy-action@master
         with:
@@ -136,9 +99,8 @@ jobs:
           format: sarif
           output: trivy-app.sarif
           severity: CRITICAL,HIGH
-          exit-code: "0"           # Don't block, just report
-
-      - name: Trivy scan — Auto-healer
+          exit-code: "0"
+      - name: Trivy scan — Healer
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_HEALER }}:latest
@@ -146,54 +108,72 @@ jobs:
           output: trivy-healer.sarif
           severity: CRITICAL,HIGH
           exit-code: "0"
-
-      - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-app.sarif
 
-  # ─── Job 4 : Deploy to Kind (smoke test) ──────────────────────────────────
   deploy:
     name: Deploy & Smoke Test
     runs-on: ubuntu-latest
     needs: security
     if: github.ref == 'refs/heads/main'
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Create Kind cluster
         uses: helm/kind-action@v1
         with:
           cluster_name: ci-cluster
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - name: Install PyYAML
+        run: pip install pyyaml
 
-      - name: Build images locally for Kind
+      - name: Build & load images into Kind
         run: |
           docker build -t auto-healing-app:local ./app
           docker build -t auto-healer:local ./healer
           kind load docker-image auto-healing-app:local --name ci-cluster
           kind load docker-image auto-healer:local --name ci-cluster
 
-      - name: Deploy app to Kind
+      - name: Deploy app (1 replica, no topology constraints)
         run: |
           kubectl apply -f k8s/namespaces.yml
-          kubectl apply -f k8s/flask-app.yml
-          kubectl patch deployment flask-app -n app --type=json -p='[
-            {"op":"replace","path":"/spec/replicas","value":1},
-            {"op":"replace","path":"/spec/replicas","value":1}
-          ]'
-          kubectl rollout status deployment/flask-app -n app --timeout=120s
-      - name: Debug pod status
-        if: always()
+          python3 - << 'EOF'
+          import yaml, subprocess, sys
+
+          with open("k8s/flask-app.yml") as f:
+              docs = list(yaml.safe_load_all(f))
+
+          for doc in docs:
+              if not doc:
+                  continue
+              if doc.get("kind") == "Deployment":
+                  doc["spec"]["replicas"] = 1
+                  spec = doc["spec"]["template"]["spec"]
+                  spec.pop("topologySpreadConstraints", None)
+              if doc.get("kind") == "HorizontalPodAutoscaler":
+                  doc["spec"]["minReplicas"] = 1
+
+          result = yaml.dump_all(docs, default_flow_style=False)
+          proc = subprocess.run(["kubectl", "apply", "-f", "-"],
+                                input=result.encode(), capture_output=True)
+          print(proc.stdout.decode())
+          if proc.returncode != 0:
+              print(proc.stderr.decode(), file=sys.stderr)
+              sys.exit(proc.returncode)
+          EOF
+
+      - name: Wait for flask-app
+        run: kubectl rollout status deployment/flask-app -n app --timeout=120s
+
+      - name: Debug if failed
+        if: failure()
         run: |
           kubectl get pods -n app -o wide
-          kubectl describe pod -l app=flask-app -n app | tail -30
+          kubectl describe pod -l app=flask-app -n app | tail -40
+          kubectl logs -l app=flask-app -n app --tail=30 || true
 
-      - name: Deploy auto-healer to Kind
+      - name: Deploy auto-healer
         run: |
           kubectl apply -f k8s/healer-rbac.yml
           kubectl apply -f k8s/healer-deployment.yml
@@ -223,6 +203,6 @@ jobs:
             -d '{"alerts":[{"status":"firing","labels":{"alertname":"FlaskHighErrorRate","namespace":"app","severity":"critical"}}]}'
           echo "✅ Auto-healer smoke test passed"
 
-      - name: Show final pod status
+      - name: Final pod status
         if: always()
         run: kubectl get pods -n app -o wide
