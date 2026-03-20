@@ -138,6 +138,7 @@ jobs:
       - name: Deploy app (1 replica, no topology constraints)
         run: |
           kubectl apply -f k8s/namespaces.yml
+          kubectl create configmap flask-app-config --from-literal=APP_VERSION=1.0.0 --from-literal=ENVIRONMENT=ci -n app --dry-run=client -o yaml | kubectl apply -f -
           python3 - << 'EOF'
           import yaml, subprocess, sys
 
