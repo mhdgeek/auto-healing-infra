@@ -1,0 +1,30 @@
+groups:
+  - name: flask-app-alerts
+    rules:
+
+      - alert: HighLatency
+        expr: histogram_quantile(0.99, rate(app_request_latency_seconds_bucket{endpoint="/work"}[5m])) > 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "P99 latency above 2s"
+          description: "Latency is {{ $value | humanizeDuration }}"
+
+      - alert: HighErrorRate
+        expr: rate(app_requests_total{status_code=~"5.."}[5m]) / rate(app_requests_total[5m]) > 0.10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate above 10%"
+          description: "{{ $value | humanizePercentage }} of requests are failing"
+
+      - alert: AppDown
+        expr: up{job="flask-app"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flask app is down"
+          description: "Prometheus cannot reach the app"

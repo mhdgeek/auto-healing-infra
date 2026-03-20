@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auto-healer
+  namespace: app
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auto-healer
+  namespace: app
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auto-healer
+  namespace: app
+subjects:
+  - kind: ServiceAccount
+    name: auto-healer
+    namespace: app
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: auto-healer

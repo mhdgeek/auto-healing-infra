@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auto-healer
+  namespace: app
+  labels:
+    app: auto-healer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: auto-healer
+  template:
+    metadata:
+      labels:
+        app: auto-healer
+    spec:
+      serviceAccountName: auto-healer    # RBAC to manage deployments/pods
+      containers:
+        - name: auto-healer
+          image: auto-healer:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: auto-healer-secrets
+                  key: slack-webhook-url
+                  optional: true        # App works without Slack
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auto-healer
+  namespace: app
+  labels:
+    app: auto-healer
+spec:
+  selector:
+    app: auto-healer
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+  type: ClusterIP

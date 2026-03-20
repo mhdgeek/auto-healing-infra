@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flask-app-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  flask-app.json: |
+    {
+      "title": "Flask App — Auto-Healing",
+      "uid": "flask-auto-healing",
+      "timezone": "browser",
+      "refresh": "10s",
+      "time": { "from": "now-15m", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request Rate (req/s)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "sum(rate(app_requests_total[1m]))",
+            "legendFormat": "req/s"
+          }]
+        },
+        {
+          "id": 2,
+          "title": "P99 Latency (seconds)",
+          "type": "timeseries",
+          "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "histogram_quantile(0.99, rate(app_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "P99"
+          }]
+        },
+        {
+          "id": 3,
+          "title": "Error Rate (%)",
+          "type": "timeseries",
+          "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "rate(app_requests_total{status_code=~\"5..\"}[1m]) / rate(app_requests_total[1m]) * 100",
+            "legendFormat": "error %"
+          }]
+        },
+        {
+          "id": 4,
+          "title": "Active Pods",
+          "type": "stat",
+          "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+          "targets": [{
+            "expr": "count(kube_pod_status_ready{namespace=\"app\", condition=\"true\"})",
+            "legendFormat": "ready pods"
+          }]
+        }
+      ]
+    }

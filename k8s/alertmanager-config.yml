@@ -1,0 +1,23 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: flask-app-alertmanager
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  route:
+    receiver: auto-healer
+    groupBy: ["alertname", "app"]
+    groupWait: 10s
+    groupInterval: 30s
+    repeatInterval: 5m
+    matchers:
+      - name: app
+        value: flask-app
+
+  receivers:
+    - name: auto-healer
+      webhookConfigs:
+        - url: "http://auto-healer.app.svc.cluster.local:8000/alert"
+          sendResolved: true
