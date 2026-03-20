@@ -167,7 +167,6 @@ jobs:
         uses: helm/kind-action@v1
         with:
           cluster_name: ci-cluster
-          config: k8s/kind-cluster.yml
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
